@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Qt Designer e arquivos temporários
+*.qrc
+*.ui~
+*.pyc
+
+# IDEs e editores
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Sistema operacional
+.DS_Store
+Thumbs.db
+
+# Logs e temp
+*.log
+*.tmp
+
+#Api key
+
+metagi-da5b0-firebase-adminsdk-fbsvc-aec7fdba72.json

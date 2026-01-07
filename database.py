@@ -101,6 +101,16 @@ class DatabaseManager:
             print(f"Erro ao remover integrante: {e}")
             return False
 
+    def delete_atividade(self, atividade_id):
+        """Remove uma atividade pelo id (cascade remove responsaveis)."""
+        try:
+            self.cursor.execute("DELETE FROM atividades WHERE id = ?", (atividade_id,))
+            self.conn.commit()
+            return True
+        except sqlite3.Error as e:
+            print(f"Erro ao remover atividade: {e}")
+            return False
+
     def listar_integrantes(self):
         """Retorna lista de dicionários: [{'id','nome','funcao'}, ...]"""
         self.cursor.execute("SELECT id, nome, funcao FROM integrantes ORDER BY nome")

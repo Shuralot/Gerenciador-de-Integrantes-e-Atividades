@@ -4,7 +4,7 @@ from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit,
     QPushButton, QVBoxLayout, QTextEdit, QComboBox,
-    QListWidget, QListWidgetItem
+    QListWidget, QListWidgetItem, QTabWidget, QHBoxLayout
 )
 from PyQt6.QtCore import Qt
 
@@ -72,26 +72,76 @@ class MainApp(QWidget):
         self.text_area = QTextEdit()
         self.text_area.setReadOnly(True)
 
-        # Layout
-        layout = QVBoxLayout()
-        layout.addWidget(QLabel("Atividades:"))
-        layout.addWidget(self.atividade_input)
-        layout.addWidget(QLabel("Gerenciar Integrantes:"))
-        layout.addWidget(self.nome_integrante_input)
-        layout.addWidget(self.funcao_input)
-        layout.addWidget(self.add_integrante_btn)
-        layout.addWidget(self.remove_integrante_btn)
-        layout.addWidget(QLabel("Integrantes na atividade:"))
-        layout.addWidget(self.selecionar_integrantes)
-        layout.addWidget(QLabel("Status da atividade:"))
-        layout.addWidget(self.status_input)
-        layout.addWidget(self.add_atividade_btn)
-        layout.addWidget(self.listar_integrantes_btn)
-        layout.addWidget(self.listar_atividades_btn)
-        layout.addWidget(QLabel("Resultado:"))
-        layout.addWidget(self.text_area)
+        # --- Construindo abas ---
+        self.tabs = QTabWidget()
 
-        self.setLayout(layout)
+        # Tab principal (Atividades + gerenciar integrantes)
+        main_tab = QWidget()
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(QLabel("Atividades:"))
+        main_layout.addWidget(self.atividade_input)
+        main_layout.addWidget(QLabel("Gerenciar Integrantes:"))
+        main_layout.addWidget(self.nome_integrante_input)
+        main_layout.addWidget(self.funcao_input)
+        main_layout.addWidget(self.add_integrante_btn)
+        main_layout.addWidget(self.remove_integrante_btn)
+        main_layout.addWidget(QLabel("Integrantes na atividade:"))
+        main_layout.addWidget(self.selecionar_integrantes)
+        main_layout.addWidget(QLabel("Status da atividade:"))
+        main_layout.addWidget(self.status_input)
+        main_layout.addWidget(self.add_atividade_btn)
+        main_layout.addWidget(self.listar_integrantes_btn)
+        main_layout.addWidget(self.listar_atividades_btn)
+        main_layout.addWidget(QLabel("Resultado:"))
+        main_layout.addWidget(self.text_area)
+        main_tab.setLayout(main_layout)
+
+        # Tab admin para manipular todos os dados do DB
+        admin_tab = QWidget()
+        admin_layout = QHBoxLayout()
+
+        # Coluna Integrantes
+        col_integrantes = QVBoxLayout()
+        col_integrantes.addWidget(QLabel("Integrantes (Admin):"))
+        self.admin_integrantes_list = QListWidget()
+        col_integrantes.addWidget(self.admin_integrantes_list)
+        self.admin_integrantes_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.admin_refresh_integrantes_btn = QPushButton("Atualizar Integrantes")
+        self.admin_refresh_integrantes_btn.clicked.connect(self.refresh_admin_integrantes)
+        self.admin_delete_integrante_btn = QPushButton("Remover Selecionados")
+        self.admin_delete_integrante_btn.clicked.connect(self.delete_selected_integrantes_admin)
+        col_integrantes.addWidget(self.admin_refresh_integrantes_btn)
+        col_integrantes.addWidget(self.admin_delete_integrante_btn)
+
+        # Coluna Atividades
+        col_atividades = QVBoxLayout()
+        col_atividades.addWidget(QLabel("Atividades (Admin):"))
+        self.admin_atividades_list = QListWidget()
+        col_atividades.addWidget(self.admin_atividades_list)
+        self.admin_atividades_list.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
+        self.admin_refresh_atividades_btn = QPushButton("Atualizar Atividades")
+        self.admin_refresh_atividades_btn.clicked.connect(self.refresh_admin_atividades)
+        self.admin_delete_atividade_btn = QPushButton("Remover Selecionadas")
+        self.admin_delete_atividade_btn.clicked.connect(self.delete_selected_atividades_admin)
+        col_atividades.addWidget(self.admin_refresh_atividades_btn)
+        col_atividades.addWidget(self.admin_delete_atividade_btn)
+
+        admin_layout.addLayout(col_integrantes)
+        admin_layout.addLayout(col_atividades)
+        admin_tab.setLayout(admin_layout)
+
+        # Adiciona abas
+        self.tabs.addTab(main_tab, "Atividades")
+        self.tabs.addTab(admin_tab, "Admin")
+
+        # Layout principal da janela
+        window_layout = QVBoxLayout()
+        window_layout.addWidget(self.tabs)
+        self.setLayout(window_layout)
+
+        # popula listas admin
+        self.refresh_admin_integrantes()
+        self.refresh_admin_atividades()
 
     def adicionar_atividade(self):
         atividade = self.atividade_input.text()
@@ -123,6 +173,57 @@ class MainApp(QWidget):
                 item = QListWidgetItem(f"{integrante['nome']} - {integrante.get('funcao','')}")
                 item.setData(Qt.ItemDataRole.UserRole, integrante)
                 self.selecionar_integrantes.addItem(item)
+
+    # --- Admin tab helpers ---
+    def refresh_admin_integrantes(self):
+        self.admin_integrantes_list.clear()
+        integrantes = self.db.listar_integrantes()
+        for i in integrantes:
+            item = QListWidgetItem(f"[{i.get('id')}] {i.get('nome')} - {i.get('funcao')}")
+            item.setData(Qt.ItemDataRole.UserRole, i)
+            self.admin_integrantes_list.addItem(item)
+
+    def refresh_admin_atividades(self):
+        self.admin_atividades_list.clear()
+        atividades = self.db.get_atividades()
+        for a in atividades:
+            texto = f"[{a.get('id')}] {a.get('atividade')} ({a.get('status')})"
+            item = QListWidgetItem(texto)
+            item.setData(Qt.ItemDataRole.UserRole, a)
+            self.admin_atividades_list.addItem(item)
+
+    def delete_selected_integrantes_admin(self):
+        selecionados = self.admin_integrantes_list.selectedItems()
+        if not selecionados:
+            self.text_area.append("⚠️ Selecione integrantes para remover (Admin).")
+            return
+        for item in selecionados:
+            dados = item.data(Qt.ItemDataRole.UserRole)
+            iid = dados.get('id')
+            if iid:
+                ok = self.db.delete_integrante(iid)
+                if ok:
+                    self.text_area.append(f"🗑️ Integrante '{dados.get('nome')}' removido (Admin).")
+                else:
+                    self.text_area.append(f"❌ Erro ao remover '{dados.get('nome')}' (Admin).")
+        self.refresh_admin_integrantes()
+        self.refresh_integrantes()
+
+    def delete_selected_atividades_admin(self):
+        selecionados = self.admin_atividades_list.selectedItems()
+        if not selecionados:
+            self.text_area.append("⚠️ Selecione atividades para remover (Admin).")
+            return
+        for item in selecionados:
+            dados = item.data(Qt.ItemDataRole.UserRole)
+            aid = dados.get('id')
+            if aid:
+                ok = self.db.delete_atividade(aid)
+                if ok:
+                    self.text_area.append(f"🗑️ Atividade '{dados.get('atividade')}' removida (Admin).")
+                else:
+                    self.text_area.append(f"❌ Erro ao remover atividade id={aid} (Admin).")
+        self.refresh_admin_atividades()
 
     def adicionar_integrante(self):
         nome = self.nome_integrante_input.text().strip()

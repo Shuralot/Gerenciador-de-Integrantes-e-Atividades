@@ -1,8 +1,5 @@
 import sys
 import os
-import uuid
-import firebase_admin
-from firebase_admin import credentials, db
 from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (
     QApplication, QWidget, QLabel, QLineEdit,
@@ -11,41 +8,51 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt
 
-# Função que resolve o caminho para arquivos externos
+from database import DatabaseManager
+
 def resource_path(relative_path):
     if hasattr(sys, '_MEIPASS'):
         return os.path.join(sys._MEIPASS, relative_path)
-    return os.path.join(os.path.abspath("."), relative_path)
+    return os.path.join(os.path.abspath('.'), relative_path)
 
-# Inicializa o Firebase usando o caminho certo
-cred_path = resource_path('metagi-da5b0-firebase-adminsdk-fbsvc-aec7fdba72.json')
-cred = credentials.Certificate(cred_path)
-firebase_admin.initialize_app(cred, {
-    'databaseURL': 'https://metagi-da5b0-default-rtdb.firebaseio.com/'
-})
+# Inicializa DB
+db_manager = DatabaseManager()
 
-root = db.reference('/')
+# Seed inicial se não houver integrantes
+if not db_manager.listar_integrantes():
+    db_manager.add_integrante("Fulano", "Desenvolvedor")
+    db_manager.add_integrante("Beltrano", "Documentista")
+    db_manager.add_integrante("Ciclano", "Gerente")
 
-class FirebaseApp(QWidget):
+class MainApp(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Gerenciador de Integrantes e Atividades")
         self.setGeometry(100, 100, 500, 600)
-        self.setWindowIcon(QIcon('assets/logo.png'))
+        self.setWindowIcon(QIcon(resource_path('assets/logo.png')))
+
+        self.db = db_manager
 
         # Campos de entrada para Atividades
         self.atividade_input = QLineEdit(self)
         self.atividade_input.setPlaceholderText("Nome da Atividade")
 
+        # Campos para gerenciar integrantes
+        self.nome_integrante_input = QLineEdit(self)
+        self.nome_integrante_input.setPlaceholderText("Nome do integrante")
+        self.funcao_input = QLineEdit(self)
+        self.funcao_input.setPlaceholderText("Função (ex: Desenvolvedor)")
+
+        self.add_integrante_btn = QPushButton("Adicionar Integrante")
+        self.add_integrante_btn.clicked.connect(self.adicionar_integrante)
+
+        self.remove_integrante_btn = QPushButton("Remover Integrante Selecionado")
+        self.remove_integrante_btn.clicked.connect(self.remover_integrante)
+
         self.selecionar_integrantes = QListWidget()
         self.selecionar_integrantes.setSelectionMode(QListWidget.SelectionMode.MultiSelection)
-
-        integrantes_list = root.child('integrantes').get()
-        if integrantes_list:
-            for integrante in integrantes_list.values():
-                item = QListWidgetItem(f"{integrante['nome']} - {integrante['funcao']}")
-                item.setData(Qt.ItemDataRole.UserRole, integrante)
-                self.selecionar_integrantes.addItem(item)
+        # popula a lista
+        self.refresh_integrantes()
 
         self.status_input = QComboBox()
         self.status_input.addItem('A Fazer', 'todo')
@@ -69,6 +76,11 @@ class FirebaseApp(QWidget):
         layout = QVBoxLayout()
         layout.addWidget(QLabel("Atividades:"))
         layout.addWidget(self.atividade_input)
+        layout.addWidget(QLabel("Gerenciar Integrantes:"))
+        layout.addWidget(self.nome_integrante_input)
+        layout.addWidget(self.funcao_input)
+        layout.addWidget(self.add_integrante_btn)
+        layout.addWidget(self.remove_integrante_btn)
         layout.addWidget(QLabel("Integrantes na atividade:"))
         layout.addWidget(self.selecionar_integrantes)
         layout.addWidget(QLabel("Status da atividade:"))
@@ -85,30 +97,70 @@ class FirebaseApp(QWidget):
         atividade = self.atividade_input.text()
         status = self.status_input.currentData()
         selecionados = self.selecionar_integrantes.selectedItems()
-
         if atividade and status and selecionados:
-            responsaveis = []
+            responsaveis_ids = []
             for item in selecionados:
                 dados = item.data(Qt.ItemDataRole.UserRole)
-                responsaveis.append(dados)
+                # dados deve conter 'id'
+                responsaveis_ids.append(dados.get('id'))
 
-            nova_atividade = {
-                'atividade': atividade,
-                'status': status,
-                'responsaveis': responsaveis
-            }
-
-            root.child('atividades').child(str(uuid.uuid4())).set(nova_atividade)
-            self.text_area.append(f"✅ Atividade '{atividade}' adicionada!")
-            self.atividade_input.clear()
-            self.selecionar_integrantes.clearSelection()
-            self.status_input.setCurrentIndex(0)
+            sucesso = self.db.add_atividade(atividade, status, responsaveis_ids)
+            if sucesso:
+                self.text_area.append(f"✅ Atividade '{atividade}' adicionada!")
+                self.atividade_input.clear()
+                self.selecionar_integrantes.clearSelection()
+                self.status_input.setCurrentIndex(0)
+            else:
+                self.text_area.append("❌ Erro ao salvar atividade no banco.")
         else:
             self.text_area.append("⚠️ Preencha todos os campos de atividade!")
 
+    def refresh_integrantes(self):
+        self.selecionar_integrantes.clear()
+        integrantes_list = self.db.listar_integrantes()
+        if integrantes_list:
+            for integrante in integrantes_list:
+                item = QListWidgetItem(f"{integrante['nome']} - {integrante.get('funcao','')}")
+                item.setData(Qt.ItemDataRole.UserRole, integrante)
+                self.selecionar_integrantes.addItem(item)
+
+    def adicionar_integrante(self):
+        nome = self.nome_integrante_input.text().strip()
+        funcao = self.funcao_input.text().strip()
+        if not nome:
+            self.text_area.append("⚠️ Informe o nome do integrante.")
+            return
+
+        rid = self.db.add_integrante(nome, funcao or None)
+        if rid:
+            self.text_area.append(f"✅ Integrante '{nome}' adicionado.")
+            self.nome_integrante_input.clear()
+            self.funcao_input.clear()
+            self.refresh_integrantes()
+        else:
+            self.text_area.append("❌ Erro ao adicionar integrante.")
+
+    def remover_integrante(self):
+        selecionados = self.selecionar_integrantes.selectedItems()
+        if not selecionados:
+            self.text_area.append("⚠️ Selecione um integrante para remover.")
+            return
+
+        for item in selecionados:
+            dados = item.data(Qt.ItemDataRole.UserRole)
+            integrante_id = dados.get('id')
+            if integrante_id:
+                sucesso = self.db.delete_integrante(integrante_id)
+                if sucesso:
+                    self.text_area.append(f"🗑️ Integrante '{dados.get('nome')}' removido.")
+                else:
+                    self.text_area.append(f"❌ Erro ao remover '{dados.get('nome')}'.")
+
+        self.refresh_integrantes()
+
     def listar_integrantes(self):
         self.text_area.clear()
-        integrantes = root.child('integrantes').get()
+        integrantes = self.db.listar_integrantes()
 
         self.text_area.append("=== Integrantes ===")
         if integrantes:
@@ -116,14 +168,15 @@ class FirebaseApp(QWidget):
             desenvolvedores = []
             gerentes = []
 
-            for id, dados in integrantes.items():
+            for dados in integrantes:
                 funcao = dados.get('funcao', '')
+                nome = dados.get('nome')
                 if funcao == 'Documentista':
-                    documentistas.append(dados['nome'])
+                    documentistas.append(nome)
                 elif funcao == 'Desenvolvedor':
-                    desenvolvedores.append(dados['nome'])
+                    desenvolvedores.append(nome)
                 elif funcao == 'Gerente':
-                    gerentes.append(dados['nome'])
+                    gerentes.append(nome)
 
             self.text_area.append("\nDocumentistas:")
             for nome in documentistas:
@@ -141,7 +194,7 @@ class FirebaseApp(QWidget):
 
     def listar_atividades(self):
         self.text_area.clear()
-        atividades = root.child('atividades').get()
+        atividades = self.db.get_atividades()
 
         self.text_area.append("\n=== Atividades ===")
         if atividades:
@@ -149,14 +202,14 @@ class FirebaseApp(QWidget):
             doing = []
             done = []
 
-            for id, dados in atividades.items():
-                status = dados.get('status', '').lower()
+            for dados in atividades:
+                status = (dados.get('status') or '').lower()
                 atividade = dados.get('atividade', 'Sem nome')
                 responsaveis = dados.get('responsaveis', [])
 
                 texto_responsaveis = ', '.join(
                     [f"{r.get('nome')} ({r.get('funcao')})" for r in responsaveis]
-                )
+                ) if responsaveis else 'Sem responsáveis'
 
                 linha = f"- {atividade} \n Responsáveis: {texto_responsaveis}"
 
@@ -180,6 +233,6 @@ class FirebaseApp(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    janela = FirebaseApp()
+    janela = MainApp()
     janela.show()
     sys.exit(app.exec())
